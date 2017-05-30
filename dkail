@@ -1,0 +1,90 @@
+--dhruva_tools_category_definition@forza_wheelcount@dhruva_tools@Projects@
+
+/*
+	TITLE : MSForza_wheelcount
+	MAX VERSION : 8
+	CREATED:  		
+	LAST UPDATED: 	Apr 23rd 2008
+	AUTHOR : Basher Ahamed.A
+	--------------------------------------
+	VERSION HISTORY/BUG FIXES :
+	According to latest spec.
+	
+	Usage: Open listener window to check count
+	------------------------------------
+*/
+
+
+
+
+	(	
+		clearlistener()
+		totpoly = 0
+		LOD0_totpoly = 0
+		idonepolys = 0
+		idtwopolys = 0
+		idfourpolys = 0
+		idelevenpolys = 0
+		
+		arrNames = #()
+		arrCounts = #()
+		
+		unhide objects
+		select $*
+		select geometry
+		max select invert
+		max delete
+		select $*
+		print (trimright maxFileName ".max" as string)
+		(	
+			
+			for obj in selection do
+			(	
+				if obj.name == "wheel_LOD0" then
+				(
+					obj.selectbymaterial 1
+					idonepolys = obj.mesh.selectedFaces.count
+					obj.selectbymaterial 4
+					idfourpolys = obj.mesh.selectedFaces.count
+					obj.selectbymaterial 11
+					idelevenpolys = obj.mesh.selectedFaces.count
+					LOD0_totpoly = idonepolys + idfourpolys+ idelevenpolys
+				
+				)
+					
+				if obj.name == "wheel_LOD1" or obj.name == "wheel_LOD2" or obj.name == "wheel_LOD3" then
+				(
+					obj.selectbymaterial 1
+					idonepolys = obj.mesh.selectedFaces.count
+					obj.selectbymaterial 2
+					idtwopolys = obj.mesh.selectedFaces.count
+					obj.selectbymaterial 4
+					idfourpolys = obj.mesh.selectedFaces.count
+					totpoly = idonepolys + idtwopolys + idfourpolys
+	--					format "%--->%\n" obj.name totpoly
+					append arrNames obj.name
+					append arrCounts totpoly
+				
+				)
+				if obj.name == "wheel_LOD4" or obj.name == "wheel_LOD5" then
+				(
+					--format "%--->%\n" obj.name obj.mesh.numfaces as string
+					append arrNames obj.name
+					append arrCounts obj.mesh.numfaces
+
+				)
+			)
+			format "wheel_LOD0->%\n" LOD0_totpoly 	
+			format "wheel_LOD1->%\n" arrCounts[(findItem arrNames "wheel_LOD1")]
+			format "wheel_LOD2->%\n" arrCounts[(findItem arrNames "wheel_LOD2")]
+			format "wheel_LOD3->%\n" arrCounts[(findItem arrNames "wheel_LOD3")]
+			format "wheel_LOD4->%\n" arrCounts[(findItem arrNames "wheel_LOD4")]
+			format "wheel_LOD5->%\n" arrCounts[(findItem arrNames "wheel_LOD5")]
+				
+		)	
+		deselect $*
+		unhide objects
+
+		
+	)
+
