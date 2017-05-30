@@ -1,0 +1,2341 @@
+/*
+Forza Wheel Tools
+------------------------------------------------------------------------------------------------
+Dummy Wheel Tool
+	-Car List from Database with easy Search
+	-Create Dummy Wheels
+	-Create Dimension Box
+Placement
+	-Place Wheels
+	-Align Rotors
+	-Align Calipers
+Edit Files
+	-Load Wheel & Brakes Max Files
+	-Checkout Max Files
+Wheel Tool
+	-Set Wheel Blur ID's
+	-Apply Channel 1-4 Mapping
+	-Wheel Morph Tool
+	-Reset Wheels
+------------------------------------------------------------------------------------------------
+Change-log :
+20-11-2014 - Wheel_morph2 back vertices moves automatically to 100mm. or 0.1m
+20-11-2014 - Removed unused functionss
+12-12-2014 - Added Ground Clearance for Dummy Wheels , fixed Rotor Pivot and Caliper Rotation.
+6-4-2015 -   Added Brakes and Wheel to Load and Checkout From Max.
+7-2-2015 -   Create Dimension Box
+			 Move all the Dummy Wheel and Dimension Box to appropriate Layers
+			 UI Changes
+3-9-2015 -   Added Car Search Query.
+             Bug Fixes on Dimension Box.
+             Ground Clearance is ON by Default.
+			 Button OP error fixed
+			 Removed all Global Variables
+			 Changed Dummy Wheel Geometry from Tube To Cylinder as per Request.
+------------------------------------------------------------------------------------------------
+Author : Kailash Diengdoh
+*/
+(
+try (CloseRolloutFloater fzWTool)
+catch
+()
+local maxUnitSize = 0.05
+local carMediaSelected = ""
+local VSPath = "\"%ProgramFiles(x86)%\Microsoft Visual Studio 10.0\Common7\IDE\TF.exe\""
+fn loadMaxFile_fromList fpath =
+(
+	getCurMaxFile = maxFilePath+maxFileName
+	if fpath != getCurMaxFile then
+	(
+		if doesFileExist fpath then
+		(
+			getStatus = getSaveRequired = true
+			if getStatus == true then
+			( 
+				if querybox "The scene has been modified.\nDo you want to save your changes?" title:"3ds Max" beep:true then
+				(
+					if getCurMaxFile != "" then
+					(
+						saveMaxFile getCurMaxFile clearNeedSaveFlag:false
+						print ( "The file " + (getFilenameFile getCurMaxFile + getFileNameType getCurMaxFile) + " has been saved")
+						loadMaxFile fpath
+					)
+					else
+					(
+						loadMaxFile fpath
+					)
+				)
+				else
+				(
+					loadMaxFile fpath
+				)
+			)
+		)
+		else
+		(
+			MessageBox "File Not Found"
+		)
+	)
+)
+fn checkoutTFS theFile FMServer =
+(
+	try
+	(
+		hiddenDOSCommand (VSPath + " checkout " + theFile + " /recursive")startPath:FMServer donotwait:true
+	)
+	catch
+		(
+			MessageBox ("There was some problem with the File")
+		)
+
+)
+fn checkoutFile =
+(
+	mxsVersion = ((maxVersion())[1])
+	FM5ServerPath = "$/Turn10/Main"
+	FM6ServerPath = "$/Turn10/FM6"
+	tfsFM5Path = "C:/TFS/main-1"
+	tfsFM6Path = "C:/TFS/FM6"
+	
+	if mxsVersion == 15000 then
+	(
+		mxFile = maxFilePath + maxFileName
+		if mxFile != "" do
+		(
+			mxFile = substituteString mxFile "\\" "/" 
+			modelStr = substituteString mxFile ".max" ".model"
+			modelPreStr = substituteString mxFile ".max" ".modelpre"
+			
+			mxFile = substituteString mxFile tfsFM5Path FM5ServerPath
+			modelStr = substituteString modelStr tfsFM5Path FM5ServerPath
+			modelPreStr = substituteString modelPreStr tfsFM5Path FM5ServerPath
+			
+			checkoutTFS mxFile tfsFM5Path
+			checkoutTFS modelStr tfsFM5Path
+			checkoutTFS modelPreStr tfsFM5Path
+		)		
+	)
+	if mxsVersion == 16000 do
+	(
+		mxFile = maxFilePath + maxFileName
+		if mxFile != "" then
+		(
+			mxFile = substituteString mxFile "\\" "/" 
+			modelStr = substituteString mxFile ".max" ".model"
+			modelPreStr = substituteString mxFile ".max" ".modelpre"
+			
+			mxFile = substituteString mxFile tfsFM6Path FM6ServerPath
+			modelStr = substituteString modelStr tfsFM6Path FM6ServerPath
+			modelPreStr = substituteString modelPreStr tfsFM6Path FM6ServerPath
+			
+			checkoutTFS mxFile tfsFM6Path
+			checkoutTFS modelStr tfsFM6Path
+			checkoutTFS modelPreStr tfsFM6Path						
+		)
+		else
+		(
+			MessageBox ("Open a File")title:"3ds Max"
+		)
+	)	
+)
+-- Dummy Wheel Tool from DB starts here
+rollout ForzaDTool "Dummy Wheel Tool" width:168 height:136
+(
+	local theText 
+	local frontTireWidth
+	local frontTireAspect 
+	local frontWheelDia
+	local rearTireWidth
+	local rearTireAspect 
+	local rearWheelDia
+	local frontTrack
+	local rearTrack
+	local getWB
+	local frontRideHeight 
+	local rearRideHeight 
+	local carDimensionData = #()
+	local mainArray = (#("<REQUIRED> - Select Car")+getCarMediaNamesFromDB())
+	local sortedArray = #()
+	dotnetControl listCarMedia "System.Windows.Forms.ComboBox" pos:[8,8] width:152 height:20 toolTip:"Select car from List"
+	checkbox chkGroundClearance "Include Ground Clearance" pos:[8,56] width:144 height:16
+	button btnCreateWheelDB "Create Dummy Wheels" pos:[8,80] width:152 height:24 toolTip:"Create Dummy Wheels from Car Database"
+	button btnCreateDimensionBox "Create Dimension Box" pos:[8,104] width:152 height:24 toolTip:"Create Dummy Wheels from Car Database"
+	--functions
+	fn searchQuery theArr theStr =
+	(	
+		sortedArray = #()
+		for i in theArr do
+		(			
+			filStr = findString i theStr
+			if filStr != undefined then
+			(
+				appendIfUnique sortedArray i
+			)
+		)
+	)
+	fn validateObj isDimension:false=
+	(
+		if isDimension == false then
+		(
+			if $dummy_fl_wheel != undefined then
+			(
+				delete $dummy_fl_wheel
+			)
+			if $dummy_fr_wheel != undefined then
+			(
+				delete $dummy_fr_wheel
+			)
+			if $dummy_bl_wheel != undefined then
+			(
+				delete $dummy_bl_wheel
+			)
+			if $dummy_br_wheel != undefined then
+			(
+				delete $dummy_br_wheel
+			)
+		)
+		else
+		(
+			if $dimensionBox != undefined then
+			(
+				delete $DimensionBox
+			)
+		)
+	)
+	fn Forza_GetCarTrackVal mediaName =
+	(	
+		carOrdinal = undefined
+		conn
+		sqlCommand = "SELECT Id FROM Data_Car Where MediaName='" + mediaName + "'"
+		dr = GetGameDBSQLiteDataReader sqlCommand &conn
+		
+		while (dr.Read()) do 
+		(
+			carOrdinal = (dr.GetInt32(0)) as string + "000"
+		)
+		conn.Close()		
+		
+		if (carOrdinal == undefined) then
+		(
+			print ("Could not find car ordinal for media name " + mediaName + " in database!")
+			return undefined
+		)
+		
+		--get the Front Track from Database
+
+		sqlCommand = "SELECT ModelFrontTrackOuter FROM Data_CarBody Where Id='" + carOrdinal + "'"
+		dr = GetGameDBSQLiteDataReader sqlCommand &conn
+		while (dr.Read()) do 
+		(
+			frontTrack = (dr.GetFloat(0))
+		)
+		conn.Close()
+		
+		--get the Rear Track from Database
+		
+		sqlCommand = "SELECT ModelRearTrackOuter FROM Data_CarBody Where Id='" + carOrdinal + "'"
+		dr = GetGameDBSQLiteDataReader sqlCommand &conn
+		while (dr.Read()) do 
+		(
+			rearTrack = (dr.GetFloat(0))
+		)
+		conn.Close()
+	)
+	fn Forza_GetCarWheelData mediaName =
+	(
+		--Front Tire Width
+		
+		local conn
+		try
+		(
+			sqlCommand = "SELECT FrontTireWidthMM FROM Data_Car Where MediaName='" + mediaName + "'"
+			dr = GetGameDBSQLiteDataReader sqlCommand &conn
+			while (dr.Read()) do 
+			(
+				frontTireWidth = (dr.GetFloat(0)) as integer
+			)
+			conn.Close()
+		)
+		catch
+		(
+			print "Error getting FrontTireWidthMM Data from DB"
+		)		
+		--Front Tire Aspect Ratio
+		try
+		(
+				sqlCommand = "SELECT FrontTireAspect FROM Data_Car Where MediaName='" + mediaName + "'"
+				dr = GetGameDBSQLiteDataReader sqlCommand &conn
+				while (dr.Read()) do 
+				(
+					frontTireAspect = (dr.GetFloat(0)) as integer
+				)
+				conn.Close()
+		)
+		catch
+		(
+			print "Error getting FrontTireAspect Data from DB"
+		)	
+		--Front Tire Diameter in Inches
+		try
+		(
+			sqlCommand = "SELECT FrontWheelDiameterIN FROM Data_Car Where MediaName='" + mediaName + "'"
+			dr = GetGameDBSQLiteDataReader sqlCommand &conn
+			while (dr.Read()) do 
+			(
+				frontWheelDia = (dr.GetFloat(0)) as integer 
+			)
+			conn.Close()
+		)
+		catch
+		(
+			print "Error getting FrontWheelDiameterIN Data from DB"
+		)
+		--Rear Tire Width
+		try
+		(
+			local conn
+			sqlCommand = "SELECT RearTireWidthMM FROM Data_Car Where MediaName='" + mediaName + "'"
+			dr = GetGameDBSQLiteDataReader sqlCommand &conn
+			while (dr.Read()) do 
+			(
+				rearTireWidth = (dr.GetFloat(0)) as integer
+			)
+			conn.Close()
+		)
+		catch
+		(
+			print "Error getting RearTireWidthMM Data from DB"
+		)		
+		--Rear Tire Aspect Ratio	 
+		try
+		(
+				sqlCommand = "SELECT RearTireAspect FROM Data_Car Where MediaName='" + mediaName + "'"
+				dr = GetGameDBSQLiteDataReader sqlCommand &conn
+				while (dr.Read()) do 
+				(
+					rearTireAspect = (dr.GetFloat(0)) as integer
+				)
+				conn.Close()
+		)
+		catch
+		(
+			print "Error getting RearTireAspect Data from DB"
+		)		
+		--Rear Wheel Diameter in Inches
+		try
+		(
+			sqlCommand = "SELECT RearWheelDiameterIN FROM Data_Car Where MediaName='" + mediaName + "'"
+			dr = GetGameDBSQLiteDataReader sqlCommand &conn
+			while (dr.Read()) do 
+			(
+				rearWheelDia = (dr.GetFloat(0)) as integer
+			)
+			conn.Close()
+		)
+		catch
+		(
+			print "Error getting RearWheelDiameterIN Data from DB"
+		)
+		getWB = Forza_GetCarDBWheelBase listCarMedia.selectedItem
+	)
+	fn Forza_GetCarRideHeight mediaName = 
+	(
+		carOrdinal = undefined
+		conn
+		sqlCommand = "SELECT Id FROM Data_Car Where MediaName='" + mediaName + "'"
+		dr = GetGameDBSQLiteDataReader sqlCommand &conn
+		
+		while (dr.Read()) do 
+		(
+			carOrdinal = (dr.GetInt32(0)) as string + "000"
+		)
+		conn.Close()		
+		
+		if (carOrdinal == undefined) then
+		(
+			print ("Could not find car ordinal for media name " + mediaName + " in database!")
+			return undefined
+		)
+		
+		--get the Front Ride Height from Database
+
+		sqlCommand = "SELECT ModelFrontStockRideHeight FROM Data_CarBody Where Id='" + carOrdinal + "'"
+		dr = GetGameDBSQLiteDataReader sqlCommand &conn
+		while (dr.Read()) do 
+		(
+			frontRideHeight = (dr.GetFloat(0))
+		)
+		conn.Close()
+		
+		--get the Rear Ride Height from Database
+
+		sqlCommand = "SELECT ModelRearStockRideHeight FROM Data_CarBody Where Id='" + carOrdinal + "'"
+		dr = GetGameDBSQLiteDataReader sqlCommand &conn
+		while (dr.Read()) do 
+		(
+			rearRideHeight = (dr.GetFloat(0))
+		)
+		conn.Close()
+	)
+	fn CreateWheelFront tireWidth tireAspect tireDiameter =
+	(
+		
+		getUnit = (1 as float / maxUnitSize)
+		
+		if tireWidth != undefined and tireAspect != undefined and tireDiameter != undefined then
+		(
+			
+			alloy_radius = (tireDiameter * 0.0254 ) / 2
+			wheel_height = (tireWidth as float / 1000)			
+			tireHeightfromAlloy = alloy_radius + (((wheel_height * tireAspect ) as float) / 100)
+			g_ftrack = frontTrack - wheel_height
+		
+			dummyWheelLF = Cylinder name:"dummy_fl_wheel" radius:(tireHeightfromAlloy*getUnit) height:(wheel_height*getUnit) heightsegs:1 capsegs:2
+			dummyWheelLF.pivot = dummyWheelLF.center
+			dummyWheelLF.rotation.y_rotation = 90
+			dummyWheelLF.pos = [0,0,0]
+			dummyWheelLF.pos = [-(g_ftrack /2)*getUnit ,(getWB/2)*20,(tireHeightfromAlloy*getUnit)]
+			dummyWheelLF.pos.x = (dummyWheelLF.pos.x - (tireWidth/1000))
+		
+		
+			dummyWheelRF = Cylinder name:"dummy_fr_wheel" radius:(tireHeightfromAlloy*getUnit) height:(wheel_height*getUnit) heightsegs:1 capsegs:2
+			dummyWheelRF.pivot = dummyWheelRF.center
+			dummyWheelRF.rotation.y_rotation = 90
+			dummyWheelRF.pos = [0,0,0]
+			dummyWheelRF.pos = [-(dummyWheelLF.pos.x),(getWB/2)*20,(tireHeightfromAlloy*getUnit)]
+				
+			dummyWheelLF.wirecolor = color 79 153 180
+			dummyWheelRF.wirecolor = color 79 153 180
+		)
+		else
+		(
+			MessageBox "Failed to get FrontWheelData from DB"
+		)
+		
+	)
+	fn CreateWheelRear tireWidth tireAspect tireDiameter =
+	(
+		
+		getUnit = (1 as float / maxUnitSize)
+		
+		if tireWidth != undefined and tireAspect != undefined and tireDiameter != undefined then
+		(
+			alloy_radius = (tireDiameter * 0.0254 ) / 2
+			wheel_height = (tireWidth as float / 1000)			
+			tireHeightfromAlloy = alloy_radius + (((wheel_height * tireAspect ) as float) / 100)
+			g_rtrack = rearTrack - wheel_height
+			
+			dummyWheelLR = Cylinder name:"dummy_bl_wheel" radius:(tireHeightfromAlloy*getUnit) height:(wheel_height*getUnit) heightsegs:1 capsegs:2
+			dummyWheelLR.pivot = dummyWheelLR.center
+			dummyWheelLR.rotation.y_rotation = 90
+			dummyWheelLR.pos = [0,0,0]
+			dummyWheelLR.pos = [-(g_rtrack/2)*getUnit ,-(getWB/2)*20,(tireHeightfromAlloy*getUnit)]
+			
+			dummyWheelRR = Cylinder name:"dummy_br_wheel" radius:(tireHeightfromAlloy*getUnit) height:(wheel_height*getUnit) heightsegs:1 capsegs:2
+			dummyWheelRR.pivot = dummyWheelRR.center
+			dummyWheelRR.rotation.y_rotation = 90
+			dummyWheelRR.pos = [0,0,0]
+			dummyWheelRR.pos = [-(dummyWheelLR.pos.x),-(getWB/2)*20,(tireHeightfromAlloy*getUnit)]
+			
+			dummyWheelLR.wirecolor = color 79 153 180
+			dummyWheelRR.wirecolor = color 79 153 180
+		)
+		else
+		(
+			MessageBox "Failed to get FrontWheelData from DB"
+		)
+		
+	)
+	fn Forza_GetCarDimensions mediaName =
+	(
+		carOrdinal = undefined
+		conn
+		sqlCommand = "SELECT Id FROM Data_Car Where MediaName='" + mediaName + "'"
+		dr = GetGameDBSQLiteDataReader sqlCommand &conn
+		
+		while (dr.Read()) do 
+		(
+			carOrdinal = (dr.GetInt32(0)) as string + "000"
+		)
+		conn.Close()		
+		
+		if (carOrdinal == undefined) then
+		(
+			print ("Could not find car ordinal for media name " + mediaName + " in database!")
+			return undefined
+		)
+		
+		--get the Width
+		sqlCommand = "SELECT Width FROM Data_CarBody Where Id='" + carOrdinal + "'"
+		dr = GetGameDBSQLiteDataReader sqlCommand &conn
+		while (dr.Read()) do 
+		(
+			carDimensionData[1] = (dr.GetFloat(0))/maxUnitSize
+		)
+		conn.Close()
+		
+		--get the Height
+		sqlCommand = "SELECT Height FROM Data_CarBody Where Id='" + carOrdinal + "'"
+		dr = GetGameDBSQLiteDataReader sqlCommand &conn
+		while (dr.Read()) do 
+		(
+			carDimensionData[2] = (dr.GetFloat(0))/maxUnitSize
+		)
+		conn.Close()
+		
+		--get the Length
+		sqlCommand = "SELECT Length FROM Data_CarBody Where Id='" + carOrdinal + "'"
+		dr = GetGameDBSQLiteDataReader sqlCommand &conn
+		while (dr.Read()) do 
+		(
+			carDimensionData[3] = (dr.GetFloat(0))/maxUnitSize
+		)
+		conn.Close()		
+	)
+	fn Forza_CreateDimensionBox =
+	(
+		if carDimensionData[1] != undefined and carDimensionData[2] != undefined and carDimensionData[3] != undefined then
+		(
+			box name:"DimensionBox" width:carDimensionData[1] height:carDimensionData[2] length:carDimensionData[3] pos:[0,0,0]
+		)
+		else
+		(
+			MessageBox "Select Car from List!"title:"CAR_SEL_ERROR"
+		)
+	)
+	fn createWheelLayers doesLayerExist:false=
+	(
+		if doesLayerExist == false then
+		(
+			newLayer = LayerManager.newLayerFromName "Dummy Wheels"
+			for i in $dummy* do
+			(
+				newLayer.addNode i
+			)
+		)
+		else
+		(
+			existingLayer = LayerManager.getLayerFromName "Dummy Wheels"
+			for i in $dummy* do
+			(
+				existingLayer.addNode i
+			)
+		)
+	)
+	fn createDimensionLayers doesLayerExist:false =
+	(
+		if doesLayerExist == false then
+		(
+			newLayer = LayerManager.newLayerFromName "Dimension Box"
+			newLayer.addNode $DimensionBox
+		)
+		else
+		(
+			existingLayer = LayerManager.getLayerFromName "Dimension Box"
+			existingLayer.addNode $DimensionBox
+		)
+	)
+	on ForzaDTool open do
+	(
+		chkGroundClearance.checked = true
+		listCarMedia.BackColor = listCarMedia.BackColor.FromArgb 68 68 68
+		listCarMedia.ForeColor = listCarMedia.ForeColor.FromArgb 255 255 255
+		for i in mainArray do
+		(
+			listCarMedia.items.add i 
+		)
+		listCarMedia.SelectedIndex = 0
+		carMediaSelected = listCarMedia.selectedItem
+	)
+	on listCarMedia SelectedValueChanged do
+	(
+		carMediaSelected = listCarMedia.SelectedItem
+	)
+	on listCarMedia TextUpdate do
+	(
+		if listCarMedia.text != "" then
+		(
+			
+			for i = 1 to mainArray.count do
+			(
+				listCarMedia.Items.Remove(mainArray[i])
+			)
+			theText = listCarMedia.text
+			searchQuery mainArray theText
+			for i in sortedArray do
+			(
+				listCarMedia.Items.Add i		
+			)
+			--listCarMedia.SelectionLength = listCarMedia.text.count
+		)
+		else
+		(
+			listCarMedia.Items.Clear()
+			for i in mainArray do
+			(
+				listCarMedia.Items.Add i
+				listCarMedia.selectedIndex = 0
+			)
+			listCarMedia.SelectionLength = listCarMedia.text.count
+		)		
+	)
+	on btnCreateWheelDB pressed do
+	(
+		if carMediaSelected != undefined and carMediaSelected != "<REQUIRED> - Select Car" then
+		(
+			clearListener()
+			wLayer = LayerManager.getLayerFromName "Dummy Wheels"
+			Forza_GetCarTrackVal listCarMedia.selectedItem
+			Forza_GetCarWheelData listCarMedia.selectedItem	
+			Forza_GetCarRideHeight listCarMedia.selectedItem
+			if carMediaSelected != "<REQUIRED> - Select Car" and chkGroundClearance.checked == false then
+			(
+				with undo on
+				(
+					validateObj()
+					CreateWheelFront frontTireWidth frontTireAspect frontWheelDia
+					CreateWheelRear rearTireWidth rearTireAspect rearWheelDia
+				)
+			)
+			else if carMediaSelected != "<REQUIRED> - Select Car" and chkGroundClearance.checked == true then
+			(
+				with undo on
+				(
+					validateObj()
+					CreateWheelFront frontTireWidth frontTireAspect frontWheelDia
+					CreateWheelRear rearTireWidth rearTireAspect rearWheelDia
+					f_height = frontRideHeight / maxUnitSize
+					r_height = rearRideHeight / maxUnitSize
+					$dummy_fl_wheel.pos.z = $dummy_fl_wheel.pos.z - f_height
+					$dummy_fr_wheel.pos.z = $dummy_fr_wheel.pos.z - f_height
+					$dummy_bl_wheel.pos.z = $dummy_bl_wheel.pos.z - r_height
+					$dummy_br_wheel.pos.z = $dummy_br_wheel.pos.z - r_height
+				)
+			)
+			else
+			(
+				MessageBox "Select Car from List !! " title:"CAR_SEL_ERROR"
+			)
+			 
+			if wLayer == undefined then
+			(
+				createWheelLayers doesLayerExist:false
+			)
+			else
+			(
+				createWheelLayers doesLayerExist:true
+			)
+		)
+		else
+		(
+			MessageBox "Select Car from List"title:"CAR_SEL_ERROR"
+		)
+	)
+	on btnCreateDimensionBox pressed do
+	(
+		if carMediaSelected != undefined and carMediaSelected != "<REQUIRED> - Select Car" then
+		(
+			dLayer = LayerManager.getLayerFromName "Dimension Box"
+			validateObj isDimension:true
+			Forza_GetCarDimensions listCarMedia.SelectedItem
+			Forza_CreateDimensionBox()
+			
+			if dLayer == undefined then
+			(
+				createDimensionLayers doesLayerExist:false
+			)
+			else
+			(
+				createDimensionLayers doesLayerExist:true
+			)
+		)
+		else
+		(
+			MessageBox "Select Car from List"title:"CAR_SEL_ERROR"
+		)
+	)
+)
+--Wheel Placement Starts Here
+rollout ForzaPlacement "Placement" width:168 height:120
+(
+	button btn_LF "LF" pos:[8,8] width:64 height:24 toolTip:"Place the Selected Wheel to Left Front"
+	button btn_RF "RF" pos:[72,8] width:64 height:24 toolTip:"Place the Selected Wheel to Right Front"
+	button btn_LR "LR" pos:[8,32] width:64 height:24 toolTip:"Place the Selected Wheel to Left Rear"
+	button btn_RR "RR" pos:[72,32] width:64 height:24 toolTip:"Place the Selected Wheel to Right Rear"
+	button btnResetPos "R" pos:[136,8] width:24 height:48 toolTip:"Reset the Position"
+	button btnAlign "Rotors" pos:[8,64] width:152 height:24 toolTip:"Align Rotors or Drum Brakes to Wheel Spindle"
+	button btnAlignCaliper "Calipers" pos:[8,88] width:152 height:24 toolTip:"Align Calipers to Rotor Center Helper"
+	
+	--local variables & Functions
+	local isRotor = #(false,false,false,false)
+	local isDrum = #(false,false,false,false)
+	local isCaliper = #(false,false,false,false)
+	local objContainer = #()
+	local rotorInitPosX = 0
+	local rotorHelperPosX = 0
+	local controlArmHelperPosX = 0
+	
+	fn unlock_LockInfo =
+	(
+		for i in objects do
+		(
+			selectmore i
+		)
+		if selection.count > 0 then
+		(
+			setTransformLockFlags selection #none
+		)
+		max select none
+	)
+	fn checkRotors = 
+	(
+			for i in $*rotorLF*LODS0 where classOf i == Editable_Poly do
+			(
+				if i != undefined then
+				(
+					isRotor[1] = true
+					deselect $*
+				)
+			)
+			for i in $*rotorRF*LODS0 where classOf i == Editable_Poly do
+			(
+				if i != undefined then
+				(
+					isRotor[2] = true
+					deselect $*
+				)
+			)
+			for i in $*rotorLR*LODS0 where classOf i == Editable_Poly do
+			(
+				if i != undefined then
+				(
+					isRotor[3] = true
+					deselect $*
+				)
+			)
+			for i in $*rotorRR*LODS0 where classOf i == Editable_Poly do
+			(
+				if i != undefined then
+				(
+					isRotor[4] = true
+					deselect $*
+				)
+			)
+	)
+	fn checkDrum = 
+	(
+			for i in $*drumLF*LODS0 where classOf i == Editable_Poly do
+			(
+				if i != undefined then
+				(
+					isDrum[1] = true
+					deselect $*
+				)
+			)
+			for i in $*drumRF*LODS0 where classOf i == Editable_Poly do
+			(
+				if i != undefined then
+				(
+					isDrum[2] = true
+					deselect $*
+				)
+			)
+			for i in $*drumLR*LODS0 where classOf i == Editable_Poly do
+			(
+				if i != undefined then
+				(
+					isDrum[3] = true
+					deselect $*
+				)
+			)
+			for i in $*drumRR*LODS0 where classOf i == Editable_Poly do
+			(
+				if i != undefined then
+				(
+					isDrum[4] = true
+					deselect $*
+				)
+			)
+	)
+	fn checkCaliper =
+	(
+		for i in $*caliperLF*LODS0 where classOf i == Editable_Poly do
+		(
+			if i != undefined do
+			(
+				isCaliper[1] = true
+			)
+		)
+		for i in $*caliperRF*LODS0 where classOf i == Editable_Poly do
+		(
+			if i != undefined do
+			(
+				isCaliper[2] = true
+			)
+		)
+		for i in $*caliperLR*LODS0 where classOf i == Editable_Poly do
+		(
+			if i != undefined do
+			(
+				isCaliper[3] = true
+			)
+		)
+		for i in $*caliperRR*LODS0 where classOf i == Editable_Poly do
+		(
+			if i != undefined do
+			(
+				isCaliper[4] = true
+			)
+		)
+	)
+	fn setCaliperPos cObj cState cPos =
+	(
+		if cPos == "LF" do
+		(
+			for i in cObj where classOf i == Editable_Poly and cState == true do
+			(
+				i.layer.select true
+			)
+			for i in selection do
+			(
+				i.pos = [0,0,0]
+				i.rotation = (quat 0 0 0 1)
+				i.pos = ($rotorLF_center.pos)
+			)
+			deselect $*
+		)
+		
+		if cPos == "RF" do
+		(
+			for i in cObj where classOf i == Editable_Poly and cState == true do
+			(
+				i.layer.select true
+			)
+			for i in selection do
+			(
+				i.pos = [0,0,0]
+				i.pos = ($rotorRF_center.pos)
+			)
+			deselect $*
+		)
+		
+		if cPos == "LR" do
+		(
+			for i in cObj where classOf i == Editable_Poly and cState == true do
+			(
+				i.layer.select true
+			)
+			for i in selection do
+			(
+				i.pos = [0,0,0]
+				i.pos = ($rotorLR_center.pos)
+			)
+			deselect $*
+		)
+		
+		if cPos == "RR" do
+		(
+			for i in cObj where classOf i == Editable_Poly and cState == true do
+			(
+				i.layer.select true
+			)
+			for i in selection do
+			(
+				i.pos = [0,0,0]
+				i.pos = ($rotorRR_center.pos)
+			)
+			deselect $*
+		)
+	)
+	fn getRotorPos objName state =
+	(
+		for i in objName where classOf i == Editable_Poly and state == true do
+		(
+			i.layer.select true
+			for j in selection where superClassOf j != helper do
+			(
+				j.pivot = [0,0,0]
+				rotorInitPosX = j.pos.x
+			)
+		)
+		for i in selection where i.name == "rotorLF_center" do
+		(
+			rotorHelperPosX  = i.pos.x - rotorInitPosX
+		)
+		for i in selection where i.name == "controlArm" do
+		(
+			controlArmHelperPosX = i.pos.x - rotorInitPosX
+		)
+		for i = 1 to selection.count do
+		(
+			objContainer[i] = $[i]
+		)		
+		if rotorHelperPosX < 0 do
+		(
+			rotorHelperPosX = -rotorHelperPosX
+		)
+		if controlArmHelperPosX < 0 do
+		(
+			controlArmHelperPosX = -controlArmHelperPosX
+		)
+	)
+	fn setPos rPos rState =
+	(
+		genRot = (angleAxis 180 [0,0,1])
+	
+		if rPos == "LF" and rState == true do
+		(
+			if $spindle_LF != undefined then 
+			(
+				select objContainer
+				for i in selection do 
+				(
+					i.pos = [0,0,0]
+					i.rotation.z = 0
+				)			
+				move objContainer $spindle_LF.pos
+				for i in selection where i.name == "rotorLF_center" do
+				(
+					i.pos.x = i.pos.x + rotorHelperPosX
+				)
+				for i in selection where i.name == "controlArm" do
+				(
+					i.pos.x = i.pos.x + controlArmHelperPosX
+				)
+			)
+			else
+			(
+				MessageBox "Check Spindle Name in LF Position" beep:false
+			)
+			deselect $*
+		)
+		if rPos == "RF" and rState == true do
+		(
+			if $spindle_RF != undefined then
+			(
+				select objContainer
+				for i in selection do 
+				(
+					i.pos = [0,0,0]
+					i.rotation.z = 0
+				)	
+				move objContainer $spindle_RF.pos
+				rotate objContainer genRot
+				for i in selection where i.name == "rotorRF_center" do
+				(
+					i.pos.x = i.pos.x - rotorHelperPosX
+				)
+				for i in selection where i.name == "controlArm" do
+				(
+					i.pos.x = i.pos.x - controlArmHelperPosX
+				)
+			)
+			else
+			(
+				MessageBox "Check Spindle Name in RF Position" beep:false
+			)
+			deselect $*
+		)
+		if rPos == "LR" and rState == true do
+		(
+			if $spindle_LR != undefined then
+			(
+				select objContainer
+				for i in selection do 
+				(
+					i.pos = [0,0,0]
+					i.rotation.z = 0
+				)	
+				move objContainer $spindle_LR.pos
+				for i in selection where i.name == "rotorLR_center" do
+				(
+					i.pos.x = i.pos.x + rotorHelperPosX
+				)
+				for i in selection where i.name == "controlArm" do
+				(
+					i.pos.x = i.pos.x + controlArmHelperPosX
+				)
+			)
+			else
+			(
+				MessageBox "Check Spindle Name in LR Position" beep:false
+			)
+			deselect $*
+		)
+		if rPos == "RR" and rState == true do
+		(
+			if $spindle_RR != undefined then
+			(
+				select objContainer
+				for i in selection do 
+				(
+					i.pos = [0,0,0]
+					i.rotation.z = 0
+				)	
+				move objContainer $spindle_RR.pos
+				rotate objContainer genRot
+				for i in selection where i.name == "rotorRR_center" do
+				(
+					i.pos.x = i.pos.x - rotorHelperPosX
+				)
+				for i in selection where i.name == "controlArm" do
+				(
+					i.pos.x = i.pos.x - controlArmHelperPosX
+				)
+			)
+			else
+			(
+				MessageBox "Check Spindle Name in RR Position" beep:false
+			)
+			deselect $*
+		)
+	
+	
+	)
+	fn renameTempSpindle =
+	(
+		for i in $*spindle where i.pos.x < 0 and i.pos.y > 0 do
+		(
+			i.name = i.name+"_LF"
+		)
+		for i in $*spindle where i.pos.x > 0 and i.pos.y > 0 do
+		(
+			i.name = i.name+"_RF"
+		)
+		for i in $*spindle where i.pos.x < 0 and i.pos.y < 0 do
+		(
+			i.name = i.name+"_LR"
+		)
+		for i in $*spindle where i.pos.x > 0 and i.pos.y < 0 do
+		(
+			i.name = i.name+"_RR"
+		)			
+	)
+	fn renameSpindleToOriginal =
+	(
+		for i in $spindle* do
+		(
+			i.name = "spindle"
+		)
+	)
+	fn setRotorPivot =
+	(
+		for i in $rotor* where classOf i == Editable_Poly do
+		(
+			i.pivot = i.center
+		)
+	)	
+	fn setPosOfWheels obj obj_pos=
+	(			
+		wheel_data = #()
+		wheel_rotation = (angleaxis -180 [0,0,1])
+		wheel_pos = 0
+		local differential_value = 0
+
+		for i in selection where i.name == "wheel_LODS0" do
+		(
+			wheel_pos = i.pos.x
+		)
+		for i in selection where i.name == "spindle" do
+		(
+			differential_value = (i.pos.x - wheel_pos)
+		)
+		
+		-- LF
+		if obj_pos == "LF" do
+		(
+			if $dummy_fl_wheel != undefined then
+			(
+				if selection.count != 0 or obj != undefined or $ != undefined and $dummy_fl_wheel != undefined do
+				(
+					for i in selection do
+					(
+						i.pos = [0,0,0]
+						i.rotation.z = 0
+					)
+					temp_wheelLF = ($dummy_fl_wheel.pos * maxUnitSize)
+					pivotLocLF = [($dummy_fl_wheel.height/2)* maxUnitSize,0,0]
+					
+					if selection.count > 1 then
+					(
+						for i = 1 to selection.count do
+						(
+							wheel_data[i] = $[i]
+						)
+					)
+					else
+					(
+						wheel_data[1]=$
+					)
+					if differential_value < 0 then 
+					(
+						differential_value = -differential_value
+					)
+						
+						move wheel_data ((temp_wheelLF-pivotLocLF)*20)
+						for i in selection where i.name == "spindle" do
+					(
+						i.pos = [(i.pos.x + differential_value),(temp_wheelLF.y)*20,(temp_wheelLF.z)*20]
+					)
+				)
+			)
+			else
+			(
+				MessageBox "dummy_fl_wheel is not in scene"
+			)
+		)		
+		-- RF
+		if obj_pos == "RF" do
+		(
+			if $dummy_fr_wheel != undefined then
+			(
+				if selection.count != 0 or obj != undefined or $ != undefined and $dummy_fr_wheel != undefined do
+				(
+					for i in selection do
+					(
+						i.pos = [0,0,0]
+						i.rotation.z = 0
+					)
+					temp_wheelLF = ($dummy_fr_wheel.pos * maxUnitSize)
+					pivotLocLF = [($dummy_fr_wheel.height/2)* maxUnitSize,0,0]
+					if selection.count > 1 then
+					(
+						for i = 1 to selection.count do
+						(
+							wheel_data[i] = $[i]
+						)
+					)
+					else
+					(
+						wheel_data[1]=$
+					)
+					
+					if wheel_data.count != 0 then
+					(
+						move wheel_data ((temp_wheelLF+pivotLocLF)*20)
+						rotate wheel_data wheel_rotation
+					)
+					if differential_value < 0 then 
+					(
+						differential_value = -differential_value
+					)
+					for i in selection where i.name == "spindle" do
+						(
+							i.pos = [(i.pos.x - differential_value),(temp_wheelLF.y)*20,(temp_wheelLF.z)*20]
+						)
+					
+				)
+			)
+			else
+			(
+				MessageBox "dummy_fr_wheel is not in scene"
+			)
+		)
+		-- LR
+		if obj_pos == "LR" do
+		(
+			if $dummy_bl_wheel != undefined then
+			(
+				if selection.count != 0 or obj != undefined or $ != undefined and $dummy_bl_wheel != undefined do
+				(
+					for i in selection do
+					(
+						i.pos = [0,0,0]
+						i.rotation.z = 0
+					)
+					temp_wheelLF = ($dummy_bl_wheel.pos * maxUnitSize)
+					pivotLocLF = [($dummy_bl_wheel.height/2)* maxUnitSize,0,0]
+					
+					if selection.count > 1 then
+					(
+						for i = 1 to selection.count do
+						(
+							wheel_data[i] = $[i]
+						)
+					)
+					else
+					(
+						wheel_data[1]=$
+					)
+					if differential_value < 0 then 
+					(
+						differential_value = -differential_value
+					)
+						move wheel_data ((temp_wheelLF-pivotLocLF)*20)
+						for i in selection where i.name == "spindle" do
+					(
+						i.pos = [(i.pos.x + differential_value),(temp_wheelLF.y)*20,(temp_wheelLF.z)*20]
+					)
+			)
+			)
+		  else
+			(
+				MessageBox "dummy_bl_wheel is not in scene"
+			)
+		)		
+		-- RR
+		if obj_pos == "RR" do
+		(
+			if $dummy_br_wheel != undefined then
+			(
+				if selection.count != 0 or obj != undefined or $ != undefined do
+				(	
+					for i in selection do
+					(
+						i.pos = [0,0,0]
+						i.rotation.z = 0
+					)
+					temp_wheelLF = ($dummy_br_wheel.pos * maxUnitSize)
+					pivotLocLF = [($dummy_br_wheel.height/2)* maxUnitSize,0,0]
+					if selection.count > 1 then
+					(
+						for i = 1 to selection.count do
+						(
+							wheel_data[i] = $[i]
+						)
+					)
+					else
+					(
+						wheel_data[1]=$
+					)
+					
+					if wheel_data.count != 0 then
+					(
+						move wheel_data ((temp_wheelLF+pivotLocLF)*20)
+						rotate wheel_data wheel_rotation
+					)
+					if differential_value < 0 then 
+					(
+						differential_value = -differential_value
+					)
+					for i in selection where i.name == "spindle" do
+						(
+							i.pos = [(i.pos.x - differential_value),(temp_wheelLF.y)*20,(temp_wheelLF.z)*20]
+						)
+				)
+			)
+			else
+			(
+				MessageBox "dummy_br_wheel is not in scene"
+			)
+		)	
+		--RESET POSITION		
+		if obj_pos == "Reset" do		
+		(
+			if selection.count != 0 or obj != undefined or $ != undefined do
+				(
+					for i in selection do
+					(
+						i.pos = [0,0,0]
+						i.rotation.z = 0
+					)
+					if differential_value < 0 then 
+					(
+						differential_value = -differential_value
+					)
+					for i in selection where i.name == "spindle" do
+					(
+						i.pos.x = (i.pos.x + differential_value)
+					)
+				)
+		)
+		--IF NOT SELECTED
+		if selection.count == 0 or $ == undefined or obj == undefined do
+		(
+			MessageBox "Select Wheel from FUEL_GRID_MODE"
+		)
+	)
+	on btn_LF pressed do
+	(
+		undo on
+		(
+			setPosOfWheels $ "LF"
+		)
+	)
+	on btn_RF pressed do
+	(
+		undo on
+		(
+			setPosOfWheels $ "RF"
+		)
+	)
+	on btn_LR pressed do
+	(
+		undo on
+		(
+			setPosOfWheels $ "LR"
+		)
+	)
+	on btn_RR pressed do
+	(
+		undo on
+		(
+			setPosOfWheels $ "RR"
+		)
+	)
+	on btnResetPos pressed do
+	(
+		undo on
+		(
+			setPosOfWheels $ "Reset"
+		)
+	)
+	on btnAlign pressed do
+	(	
+		unlock_LockInfo()
+		checkRotors()
+		checkDrum()
+		undo on
+		(
+			--Rename Spindle for TempPurpose
+			renameTempSpindle()
+			
+			--Align Rotor or Drums 
+			getRotorPos $*rotorLF*LODS0 isRotor[1]
+			setPos "LF" isRotor[1]
+			getRotorPos $*drumLF*LODS0 isDrum[1]
+			setPos "LF" isDrum[1]
+			
+			getRotorPos $*rotorRF*LODS0 isRotor[2]
+			setPos "RF" isRotor[2]
+			getRotorPos $*drumRF*LODS0 isDrum[2]
+			setPos "RF" isDrum[2]
+			
+			getRotorPos $*rotorLR*LODS0 isRotor[3]
+			setPos "LR" isRotor[3]
+			getRotorPos $*drumLR*LODS0 isDrum[3]
+			setPos "LR" isDrum[3]
+			
+			getRotorPos $*rotorRR*LODS0 isRotor[4]
+			setPos "RR" isRotor[4]
+			getRotorPos $*drumRR*LODS0 isDrum[4]
+			setPos "RR" isDrum[4]
+			
+			renameSpindleToOriginal()
+			setRotorPivot()
+		)
+	)
+	on btnAlignCaliper pressed do
+	(
+		unlock_LockInfo()
+		checkCaliper()
+		undo on
+		(
+		 setCaliperPos $*caliperLF*LODS0 isCaliper[1] "LF"
+		 setCaliperPos $*caliperRF*LODS0 isCaliper[2] "RF"
+		 setCaliperPos $*caliperLR*LODS0 isCaliper[3] "LR"
+		 setCaliperPos $*caliperRR*LODS0 isCaliper[4] "RR"
+		)
+	)
+)
+--EditFiles Starts Here
+rollout EditFiles "Edit Files" width:168 height:216
+(
+	listbox lbx_fileList "" pos:[8,64] width:152 height:8
+	button btn_loadFilesinList "Show Files in List" pos:[7,34] width:152 height:24
+	button btn_checkoutFile "Checkout Max File" pos:[8,184] width:152 height:24
+	dropdownList edt_fileList "" pos:[8,8] width:152 height:21 items:#("Brakes", "Wheels")
+	
+	local carRootDir = Forza_getMediaSourceRoot()
+	local subcarFile
+	local fileList
+	local nameList = #()
+	fn loadXMLFile carMediaName =
+	(
+		subcarFile = carRootDir+"\cars\\"+carMediaName+"\scene\\"+carMediaName+".subcars\\"+edt_fileList.selected+".subcar"		
+	)
+	fn getFileinList xmFile =
+	(
+		fileList = #()
+		local tempList
+		xDoc = dotnetObject("System.Xml.XmlDocument")
+		if doesFileExist xmFile then
+		(
+			tempWList = #()
+			xDoc.load xmFile
+			xQuery = xDoc.SelectNodes ("/CarScene/Instances/Instance/Model")
+			tempList = for i = 0 to xQuery.count-1 collect (xQuery.ItemOf[i].getAttribute"value")
+			
+			for i in tempList do
+			(
+				appendIfUnique fileList i
+			)
+			for i = 1 to fileList.count do 
+			(
+				nameList[i] = getFileNameFile fileList[i] + getFileNameType fileList[i]
+			)
+		)
+		else
+		(
+			MessageBox (carMediaSelected+" "+edt_fileList.selected+".subcar not found")title:"SUBCAR_FILE_ERROR"
+		)
+	)
+
+	on lbx_fileList doubleClicked sel do
+	(
+		loadMaxFile_fromList (carRootDir+"\\"+fileList[sel])
+	)
+	on btn_loadFilesinList pressed do
+	(
+		if lbx_fileList.items.count > 0 then
+		(
+			for i = 1 to lbx_fileList.items.count do
+			(
+				lbx_fileList.items = deleteItem lbx_fileList.items 1
+			)
+		)
+		loadXMLFile carMediaSelected
+		getFileinList subcarFile
+		lbx_fileList.items = nameList
+	)
+	on btn_checkoutFile pressed do
+	(
+		checkoutFile()
+	)
+)
+--WheelTool Starts Here
+rollout WheelTool "Wheel Tool" width:168 height:304
+(
+	button btnResize "Create Morph" pos:[16,144] width:136 height:24 toolTip:"Rescale the Wheel and Create Morphs" highlightColor:(color 255 0 0)
+	button btnApply "Apply Morph" pos:[16,168] width:136 height:24 toolTip:"Apply Morph Targets to Wheels"
+	checkbox chkLod "LODS0 : Included" pos:[16,104] width:120 height:16 checked:true toolTip:"LODS0 for Rescaling the Wheel and Applying Morphs"
+	checkbox chkLowerLod "LOD1-5 : Excluded" pos:[16,120] width:120 height:16 checked:false toolTip:"LOD 1-5 for Rescaling the Wheel and Applying Morphs"
+	button btnReset "Reset Wheels" pos:[16,264] width:136 height:24 toolTip:"Reset the Wheel to Rim Size Specified above"
+	spinner edtRimSize "" pos:[112,240] width:40 height:16 range:[10,24,18] type:#integer toolTip:"Enter the Wheel Size in Inches"
+	GroupBox grp2 "Reset Wheel" pos:[8,224] width:152 height:72
+	button btnDelMorph "Delete Morph" pos:[16,192] width:136 height:24 toolTip:"Delete the Existing Morph's"
+	label lbl1 "Rim Size in Inches" pos:[16,240] width:88 height:16
+	button btnBlurMap "Apply Channel 1-4 Map" pos:[16,48] width:136 height:24 toolTip:"Apply Channel 1-4 Mapping in BlurLip and BlurRim"
+	GroupBox grp12 "Morph Tool" pos:[8,80] width:152 height:144
+	button btn_setBlurID "Set Wheel Blur ID's" pos:[16,24] width:136 height:24 toolTip:"Apply Channel 1-4 Mapping in BlurLip and BlurRim"
+	GroupBox grp13 "Wheel Blur Tool" pos:[8,8] width:152 height:72	
+	
+	local uvMod = UVWMap()
+	local padding = 0.01
+	local getLipSize = 0
+	local LipSelection = #()
+	local RimSelection = #()
+	local unitSize = 0.05 as float 
+	local errCtrl = #(false,false,false)
+	local wheelErr = ""
+	local lodWheelErr = ""
+	local morphError = 0
+	local lodmorphError = 0
+	local errorString = ""
+	local lod_errorString = ""
+	local wheelToMaxSize = #(279.4,304.8,336.55,361.95,387.35,412.75,438.15,469.9,495.3,520.7,546.1,571.5,596.9,622.3,647.7)
+	local wheelDefaultSize = #(10,11,12,13,14,15,16,17,18,19,20,21,22,23,24)
+	local errorThrow = 0
+	local colorData = #(red,green,blue)
+	local b_ColorData = #(red,green,blue,yellow,gray)
+	
+	fn setSelection =
+	(
+		for i in $blurLip* do
+		(
+			selectMore i
+		)
+		for i in $blurRim* do
+		(
+			selectMore i
+		)
+	)
+	fn ApplyMod chMap = 
+	(
+		setSelection()
+		if selection.count > 0 then
+		(
+			getLipSize = ($.max - $.min)
+			uvMod.mapChannel = chMap
+			uvMod.Name = "ChannelMap "+(chMap as string)
+			uvMod.length = getLipSize.z+padding
+			uvMod.width = getLipSize.y+padding
+			addModifier $ uvMod
+			deselect $*
+			setSelection()
+			uvMod.Gizmo.position = [0,0,0]
+			uvMod.Gizmo.Rotation = (quat -0.5 -0.5 0.5 0.5)
+			ConvertTo $ Editable_Poly
+		)
+		else
+		(
+			MessageBox "CHECK FILENAME | OBJECTS NOT IN SCENE"
+		)
+		deselect $*
+	)
+	fn ResetCollapse g_obj =
+	(
+		ResetXForm g_obj
+		ConvertTo g_obj Editable_Poly
+	)	
+	fn deleteFiles r_obj =
+	(
+		if r_obj != undefined then
+		(
+			delete r_obj
+		)		
+	)
+	fn checkforObj getWheelObj getRimObj getLipObj lodVal =
+	(
+		if getWheelObj != undefined then
+		(
+			errCtrl[1] = true
+		)
+		if getLipObj != undefined then
+		(
+			errCtrl[2] = true
+		)
+		if getRimObj != undefined then
+		(
+			errCtrl[3] = true
+		)
+	)	
+	fn WheelErrorList =
+	(
+		--LODS0
+		if $wheel_LODS0 == undefined then
+		(
+			errorThrow = 1
+			wheelErr = "wheel_LODS0	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurLip_LODS0 == undefined then
+		(
+			errorThrow = 1
+			wheelErr = wheelErr + "\nblurLip_LODS0	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurRim_LODS0 == undefined then
+		(
+			errorThrow = 1
+			wheelErr = wheelErr + "\nblurRim_LODS0	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+	)
+	fn WheelErrorList_LOD =
+	(
+		--LOD1
+		if $wheel_LOD1 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = "\nwheel_LOD1	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurLip_LOD1 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nblurLip_LOD1	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurRim_LOD1 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nblurRim_LOD1	| CHECK FILENAME | OBJECT NOT FOUND "
+		)		
+		
+		--LOD2
+		if $wheel_LOD2 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nwheel_LOD2	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurLip_LOD2 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nblurLip_LOD2	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurRim_LOD2 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nblurRim_LOD2	| CHECK FILENAME | OBJECT NOT FOUND "
+		)		
+		
+		--LOD3
+		if $wheel_LOD3 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nwheel_LOD3	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurLip_LOD3 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nblurLip_LOD3	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurRim_LOD3 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nblurRim_LOD3	| CHECK FILENAME | OBJECT NOT FOUND "
+		)			
+		
+		--LOD4
+		if $blurLip_LOD4 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nblurLip_LOD4	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurRim_LOD4 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nblurRim_LOD4	| CHECK FILENAME | OBJECT NOT FOUND "
+		)		
+		
+		--LOD5
+		if $blurLip_LOD5 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nblurLip_LOD5	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurRim_LOD5 == undefined then
+		(
+			errorThrow = 1
+			lodWheelErr = lodWheelErr + "\nblurRim_LOD5	| CHECK FILENAME | OBJECT NOT FOUND "
+		)	
+	)
+	fn MorphErrorList_LOD0 =
+	(
+		
+		if $wheel_LODS0_morph == undefined then
+		(
+			morphError = 1
+			errorString = "wheel_LODS0_morph	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $wheel_LODS0_morph2 == undefined then
+		(
+			morphError = 1
+			errorString = errorString+"\nwheel_LODS0_morph2	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurLip_LODS0_morph == undefined then
+		(
+			morphError = 1
+			errorString = errorString + "\nblurLip_LODS0_morph	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurRim_LODS0_morph == undefined then
+		(
+			morphError = 1
+			errorString = errorString + "\nblurRim_LODS0_morph	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+	)
+	fn MorphErrorList_LLDR =
+	(
+		if $wheel_LOD1_morph == undefined then
+		(
+			lodmorphError = 1
+			lod_errorString = lod_errorString + "\nwheel_LOD1_morph	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $wheel_LOD1_morph2 == undefined then
+		(
+			lodmorphError = 1
+			lod_errorString = lod_errorString + "\nwheel_LOD1_morph2	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurLip_LOD1_morph == undefined then
+		(
+			lodmorphError = 1
+			lod_errorString = lod_errorString + "\nblurLip_LOD1_morph	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+		if $blurRim_LOD1_morph == undefined then
+		(
+			lodmorphError = 1
+			lod_errorString = lod_errorString + "\nblurRim_LOD1_morph	| CHECK FILENAME | OBJECT NOT FOUND "
+		)
+	)
+	fn getMessageBox hwMsg =
+	(
+		if errorString != "" then
+		(
+			MessageBox (hwMsg as string)Title:"MORPH LODS0 FILE CHECK | ERROR" beep:false
+		)
+		if lod_errorString != "" then
+		(
+			MessageBox (hwMsg as string)Title:"MORPH LOD 1 - 5 FILE CHECK | ERROR" beep:false
+		)
+		if wheelErr != "" then
+		(
+			MessageBox (hwMsg as string)Title:"WHEEL _LOD0_ FILE CHECK" beep:false
+		)
+		if lodWheelErr != "" then
+		(
+			MessageBox (hwMsg as string)Title:"WHEEL _LOD1-5_ FILE CHECK" beep:false
+		)
+	)
+	fn checkForExisting = 
+	(
+		if $maxBox != undefined do
+		(
+			delete $maxBox
+		)
+		if $minBox != undefined do
+		(
+			delete $minBox
+		)
+	)	
+	fn DrawBox =
+	(
+		minSize = 0.2794 / unitSize
+		maxSize = 0.6477 / unitSize
+		cLength = 1.0 / unitSize
+		
+		largeBox = Box name:"maxBox" length:maxSize width:maxSize height:cLength
+		$maxBox.rotation.y_rotation = 90
+		$maxBox.material = meditMaterials[24]
+		$maxBox.xray = on
+		smallBox = Box name:"minBox" length:minSize width:minSize height:cLength
+		$minBox.rotation.y_rotation = 90
+		$minBox.material = meditMaterials[24]
+		$minBox.xray = on
+		select $maxBox
+		selectmore $minBox
+		for i in selection do setTransformLockFlags i #all
+	)
+	fn applyVertexColor =
+	(
+		if $wheel_LOD1 != undefined and $wheel_LOD2 != undefined and $wheel_LOD3 != undefined then
+		(
+			select $wheel_LOD1
+			subOjectLevel = 1
+			PolyOp.setVertSelection $wheel_LOD1 #all
+			$wheel_LOD1.setVertexColor colorData[1] #VertexColor
+			deselect $*
+			select $wheel_LOD2
+			subOjectLevel = 1
+			PolyOp.setVertSelection $wheel_LOD2 #all
+			$wheel_LOD2.setVertexColor colorData[2] #VertexColor
+			deselect $*
+			select $wheel_LOD2
+			subOjectLevel = 1
+			PolyOp.setVertSelection $wheel_LOD3 #all
+			$wheel_LOD3.setVertexColor colorData[3] #VertexColor
+		)
+	)
+	fn applyBlurVertexColor b_obj objColor =
+	(
+		select b_obj
+		if b_obj != undefined then
+		(
+			subOjectLevel = 1
+			PolyOp.setVertSelection b_obj #all
+			b_obj.setVertexColor objColor #VertexColor
+		)
+	)
+	fn attachLLDR =
+	(
+		
+		if $wheel_LOD1 != undefined and $wheel_LOD2 != undefined and $wheel_LOD3 != undefined then
+		(
+			$wheel_LOD1.attach $wheel_LOD2 $wheel_LOD2
+			$wheel_LOD1.attach $wheel_LOD3 $wheel_LOD3
+		)
+	)
+	fn attachBlurLLDR baseObj attachObj =
+	(		
+		if baseObj != undefined then
+		(
+			baseObj.attach attachObj attachObj
+		)
+	)
+	fn detachLLDRBasedVertexColor =
+	(
+		for i in geometry where classOf i == Editable_Poly do
+		(
+			ResetXForm i 
+			ConvertTo i Editable_Poly
+		)
+		if $wheel_LOD1 != undefined then
+		(
+			select $wheel_LOD1
+			--LOD2
+		    if classOf $ == Editable_Poly do
+			(
+				theVerts = polyop.getVertsByColor $ colorData[2] 0 0 0 channel:0
+				polyop.setVertSelection $ theVerts
+				$.ConvertSelection #Vertex #Face
+				getFaceSel = polyop.getFaceSelection $
+				polyop.detachFaces $ getFaceSel asNode:true name:"wheel_LOD2"
+			)
+			--LOD3
+			deselect $wheel_LOD1
+			select $wheel_LOD1
+			if classOf $ == Editable_Poly do
+			(
+				theVerts = polyop.getVertsByColor $ colorData[3] 0 0 0 channel:0
+				polyop.setVertSelection $ theVerts
+				$.ConvertSelection #Vertex #Face
+				getFaceSel = polyop.getFaceSelection $
+				polyop.detachFaces $ getFaceSel asNode:true name:"wheel_LOD3"
+			)
+		)
+		deselect $wheel_LOD1
+	)
+	fn detachLipLLDRBasedVertexColor =
+	(
+		if $blurLip_LOD1 != undefined then
+		(
+			--LOD2
+			select $blurLip_LOD1
+			if classOf $ == Editable_Poly do
+			(
+				theVerts = polyop.getVertsByColor $ b_ColorData[2] 0 0 0 channel:0
+				polyop.setVertSelection $ theVerts
+				$.ConvertSelection #Vertex #Face
+				getFaceSel = polyop.getFaceSelection $
+				polyop.detachFaces $ getFaceSel asNode:true name:"blurLip_LOD2"
+			)
+			deselect $blurLip_LOD1
+			select $blurLip_LOD1		
+			--LOD3
+			if classOf $ == Editable_Poly do
+			(
+				theVerts = polyop.getVertsByColor $ b_ColorData[3] 0 0 0 channel:0
+				polyop.setVertSelection $ theVerts
+				$.ConvertSelection #Vertex #Face
+				getFaceSel = polyop.getFaceSelection $
+				polyop.detachFaces $ getFaceSel asNode:true name:"blurLip_LOD3"
+			)
+			deselect $blurLip_LOD1
+			select $blurLip_LOD1		
+			--LOD4
+			if classOf $ == Editable_Poly do
+			(
+				theVerts = polyop.getVertsByColor $ b_ColorData[4] 0 0 0 channel:0
+				polyop.setVertSelection $ theVerts
+				$.ConvertSelection #Vertex #Face
+				getFaceSel = polyop.getFaceSelection $
+				polyop.detachFaces $ getFaceSel asNode:true name:"blurLip_LOD4"
+			)
+			deselect $blurLip_LOD1
+			select $blurLip_LOD1	
+			--LOD5
+			if classOf $ == Editable_Poly do
+			(
+				theVerts = polyop.getVertsByColor $ b_ColorData[5] 0 0 0 channel:0
+				polyop.setVertSelection $ theVerts
+				$.ConvertSelection #Vertex #Face
+				getFaceSel = polyop.getFaceSelection $
+				polyop.detachFaces $ getFaceSel asNode:true name:"blurLip_LOD5"
+			)
+			deselect $blurLip_LOD1
+		)
+	)
+	fn detachRimLLDRBasedVertexColor =
+	(
+		if $blurRim_LOD1 != undefined then
+		(
+			--LOD2
+			select $blurRim_LOD1
+			if classOf $ == Editable_Poly do
+			(
+				theVerts = polyop.getVertsByColor $ b_ColorData[2] 0 0 0 channel:0
+				polyop.setVertSelection $ theVerts
+				$.ConvertSelection #Vertex #Face
+				getFaceSel = polyop.getFaceSelection $
+				polyop.detachFaces $ getFaceSel asNode:true name:"blurRim_LOD2"
+			)
+			deselect $blurRim_LOD1
+			select $blurRim_LOD1
+			--LOD3
+			if classOf $ == Editable_Poly do
+			(
+				theVerts = polyop.getVertsByColor $ b_ColorData[3] 0 0 0 channel:0
+				polyop.setVertSelection $ theVerts
+				$.ConvertSelection #Vertex #Face
+				getFaceSel = polyop.getFaceSelection $
+				polyop.detachFaces $ getFaceSel asNode:true name:"blurRim_LOD3"
+			)
+			deselect $blurRim_LOD1
+			select $blurRim_LOD1
+			--LOD4
+			if classOf $ == Editable_Poly do
+			(
+				theVerts = polyop.getVertsByColor $ b_ColorData[4] 0 0 0 channel:0
+				polyop.setVertSelection $ theVerts
+				$.ConvertSelection #Vertex #Face
+				getFaceSel = polyop.getFaceSelection $
+				polyop.detachFaces $ getFaceSel asNode:true name:"blurRim_LOD4"
+			)
+			deselect $blurRim_LOD1
+			select $blurRim_LOD1
+			--LOD5
+			if classOf $ == Editable_Poly do
+			(
+				theVerts = polyop.getVertsByColor $ b_ColorData[5] 0 0 0 channel:0
+				polyop.setVertSelection $ theVerts
+				$.ConvertSelection #Vertex #Face
+				getFaceSel = polyop.getFaceSelection $
+				polyop.detachFaces $ getFaceSel asNode:true name:"blurRim_LOD5"
+			)
+			deselect $blurRim_LOD1
+		)
+	)	
+	fn applyWheelMorph c_obj getMorph getMorph2 =
+	(		
+			select c_obj
+			ResetCollapse c_obj
+			wheelMod = Morpher()
+			addModifier c_obj wheelMod
+			WM3_MC_BuildFromNode c_obj.morpher 1 getMorph
+			WM3_MC_BuildFromNode c_obj.morpher 2 getMorph2
+	)	
+	fn applyBlurMorph c_obj getMorph =
+	(		
+			select c_obj
+			ResetCollapse c_obj
+			blurMod = Morpher()
+			addModifier c_obj blurMod
+			WM3_MC_BuildFromNode c_obj.morpher 1 getMorph
+	)	
+	fn scaleMinWheel getWheel =
+	(
+		getWheelDimensionY = (getWheel.max.y - getWheel.min.y)
+		getWheelDimensionZ = (getWheel.max.z - getWheel.min.z)
+		getMinBoxDimensionY = ($minBox.max.y - $minBox.min.y)
+		getMinBoxDimensionZ = ($minBox.max.z - $minBox.min.z)
+		ResetCollapse getWheel
+		getWheel.scale.y = (getMinBoxDimensionY / getWheelDimensionY)
+		getWheel.scale.z = (getMinBoxDimensionZ / getWheelDimensionZ)
+		move getWheel ($minBox.center - getWheel.center)
+		getWheel.pos = [0,0,0]
+		ResetCollapse getWheel
+	)	
+	fn cloneWheel getWheel newName getState =
+	(
+		if getState == false do
+		(
+			select getWheel
+			maxOps.cloneNodes $ cloneType:#copy newNodes:&obj #nodialog
+			obj[1].name = newName+"_morph"
+			ResetCollapse getWheel
+			deselect $*
+		)
+		if getState == true do
+		(
+			select getWheel
+			maxOps.cloneNodes $ cloneType:#copy newNodes:&obj #nodialog
+			obj[1].name = newName+"_morph"
+			ResetCollapse getWheel
+			deselect $*
+			select getWheel
+			maxOps.cloneNodes $ cloneType:#copy newNodes:&obj #nodialog
+			obj[1].name = newName+"_morph2"
+			ResetCollapse getWheel
+			deselect $*
+		)
+	)	
+	fn scaleMaxWheel getWheel =
+	(
+		getWheelDimensionY = (getWheel.max.y - getWheel.min.y)
+		getWheelDimensionZ = (getWheel.max.z - getWheel.min.z)
+		getMaxBoxDimensionY = ($maxBox.max.y - $maxBox.min.y)
+		getMaxBoxDimensionZ = ($maxBox.max.z - $maxBox.min.z)
+		ResetCollapse getWheel
+		getWheel.scale.y = (getMaxBoxDimensionY / getWheelDimensionY)
+		getWheel.scale.z = (getMaxBoxDimensionZ / getWheelDimensionZ)
+		move getWheel ($maxBox.center - getWheel.center)
+		getWheel.pos = [0,0,0]
+		ResetCollapse getWheel
+	)	
+	fn blurScale getLip getRim =
+	(
+		if getLip != undefined and getRim != undefined do
+		(
+			getLip.attach getRim getRim
+		)
+	)
+	fn blurDetach getLip getRimName =
+	(
+		dRim = getLip
+		dRim.selectByMaterial 13
+		getFaceSel = polyop.getFaceSelection getLip
+		polyop.detachFaces getLip getFaceSel asNode:true name:getRimName
+	)	
+	fn ResetWheels getRimVal r_obj =
+	(
+		if r_obj != undefined then
+		(
+			fItem = findItem wheelDefaultSize getRimVal
+			getItem = wheelToMaxSize[fItem]
+			defSize = (getItem/1000)/unitSize		
+			wheelSize = [0,defSize,defSize]
+			getMaxY = (r_obj.max.y - r_obj.min.y)
+			getMaxZ = (r_obj.max.z - r_obj.min.z)
+			r_obj.scale.y = (wheelSize.y / getMaxY)
+			r_obj.scale.z = (wheelSize.z / getMaxZ)
+		)
+	)
+	fn moveMorphVerts obj =
+	(
+		if obj != undefined then
+		(
+			tempVertArray = #()
+			posVertIndex = #()
+			for i = 1 to polyop.getNumVerts obj do
+			(
+				tempVertArray[i] = i
+			)
+			for i in tempVertArray do
+			(
+				if obj.verts[i].pos.x > (0.25/maxUnitSize) do
+				(
+					append posVertIndex i
+				)
+			)
+			polyop.setVertSelection obj posVertIndex
+			polyop.moveVert obj posVertIndex [-(1/maxUnitSize),0,0]
+			polyop.moveVert obj posVertIndex [(0.1/maxUnitSize),0,0]
+		)
+		else
+		(
+			MessageBox "morph2 not found"
+		)
+	)
+	--events
+
+	on WheelTool open do
+	(
+		for i in geometry where classOf i == Editable_Poly or classOf i == Editable_Mesh do
+			(
+				i.UnHideAll #Face
+				i.UnHideAll #Edge
+				i.UnHideAll #Vertex
+			)
+	)
+	on WheelTool close do
+	(
+		undo on
+		(
+			if $Morph2Box != undefined do
+			(
+				delete $Morph2Box
+			)
+		)
+	)
+	on btnResize pressed do
+	(
+					
+				if chkLod.checked == true do
+				(
+				undo on
+				(
+					checkforObj $wheel_LODS0 $blurRim_LODS0 $blurLip_LODS0 "S0"
+					WheelErrorList()			
+					if errCtrl[1] == true and errCtrl[2] == true and errCtrl[3] == true and errorThrow == 0 then
+					(		
+						DrawBox()
+						if $wheel_LODS0 != undefined do
+						(
+							scaleMinWheel $wheel_LODS0
+							cloneWheel $wheel_LODS0 "wheel_LODS0" true
+							scaleMaxWheel $wheel_LODS0_morph
+							moveMorphVerts $wheel_LODS0_morph2
+						)
+						if $blurLip_LODS0 != undefined and $blurRim_LODS0 != undefined and errorThrow == 0 do
+						(
+							blurScale $blurLip_LODS0 $blurRim_LODS0
+							scaleMinWheel $blurLip_LODS0
+							cloneWheel $blurLip_LODS0 "blurLip_LODS0" false
+							scaleMaxWheel $blurLip_LODS0_morph
+							blurDetach $blurLip_LODS0 "blurRim_LODS0"
+							blurDetach $blurLip_LODS0_morph "blurRim_LODS0_morph"
+						)
+					)
+					else
+					(
+							getMessageBox wheelErr
+							wheelErr = ""
+					)
+					checkForExisting()
+				)
+				)
+				if chkLowerLod.checked == true do
+				(
+					undo on
+					(
+						for i in geometry where classOf i == Editable_Poly do
+						(
+							i.setVertexColor (color 0 0 0) #VertexColor 
+						)
+						--LOD1
+						lodWheelErr = ""
+						WheelErrorList_LOD()
+						getMessageBox lodWheelErr
+						
+						if $wheel_LOD1 != undefined and $wheel_LOD2 != undefined and $wheel_LOD3 != undefined then
+						(
+							DrawBox()
+							applyVertexColor()
+							attachLLDR()
+							scaleMinWheel $wheel_LOD1
+							detachLLDRBasedVertexColor()
+							cloneWheel $wheel_LOD1 "wheel_LOD1" true
+							scaleMaxWheel $wheel_LOD1_morph
+							moveMorphVerts $wheel_LOD1_morph2
+							checkForExisting()						
+						)
+						if $blurLip_LOD1 != undefined and $blurLip_LOD2 != undefined and $blurLip_LOD3 != undefined and $blurLip_LOD4 != undefined and $blurLip_LOD5 != undefined then
+						(
+							if $blurLip_LOD1 != undefined and $blurLip_LOD2 != undefined and $blurLip_LOD3 != undefined and $blurLip_LOD4 != undefined and $blurLip_LOD5 != undefined then
+							(
+								DrawBox()
+								applyBlurVertexColor $blurLip_LOD1 b_ColorData[1]
+								applyBlurVertexColor $blurLip_LOD2 b_ColorData[2]
+								applyBlurVertexColor $blurLip_LOD3 b_ColorData[3]
+								applyBlurVertexColor $blurLip_LOD4 b_ColorData[4]
+								applyBlurVertexColor $blurLip_LOD5 b_ColorData[5]
+								
+								applyBlurVertexColor $blurRim_LOD1 b_ColorData[1]
+								applyBlurVertexColor $blurRim_LOD2 b_ColorData[2]
+								applyBlurVertexColor $blurRim_LOD3 b_ColorData[3]
+								applyBlurVertexColor $blurRim_LOD4 b_ColorData[4]
+								applyBlurVertexColor $blurRim_LOD5 b_ColorData[5]
+								
+								attachBlurLLDR $blurLip_LOD1 $blurLip_LOD2
+								attachBlurLLDR $blurLip_LOD1 $blurLip_LOD3
+								attachBlurLLDR $blurLip_LOD1 $blurLip_LOD4
+								attachBlurLLDR $blurLip_LOD1 $blurLip_LOD5
+								
+								attachBlurLLDR $blurRim_LOD1 $blurRim_LOD2
+								attachBlurLLDR $blurRim_LOD1 $blurRim_LOD3
+								attachBlurLLDR $blurRim_LOD1 $blurRim_LOD4
+								attachBlurLLDR $blurRim_LOD1 $blurRim_LOD5
+								
+															
+								blurScale $blurLip_LOD1 $blurRim_LOD1
+								scaleMinWheel $blurLip_LOD1
+								blurDetach $blurLip_LOD1 "blurRim_LOD1"
+															
+								detachLipLLDRBasedVertexColor()
+								detachRimLLDRBasedVertexColor()
+								
+								cloneWheel $blurLip_LOD1 "blurLip_LOD1" false
+								cloneWheel $blurRim_LOD1 "blurRim_LOD1" false
+								blurScale $blurLip_LOD1_morph $blurRim_LOD1_morph
+								scaleMaxWheel $blurLip_LOD1_morph
+								blurDetach $blurLip_LOD1_morph "blurRim_LOD1_morph"
+							
+							)
+							checkForExisting()
+							lodWheelErr = ""
+						)
+						for i in geometry where classOf i == Editable_Poly or classOf i == Editable_Mesh do
+						(
+							select i
+							subOjectLevel = 1
+							PolyOp.setVertSelection i #all
+							i.setVertexColor (color 0 0 0) #VertexColor
+							i.showVertexColors = off
+						)
+					)
+				)					
+	)
+	on btnApply pressed do
+	(
+		morphError = 0
+		lodmorphError = 0
+		undo on
+		(
+			if chkLod.checked == true do
+				(
+					errorString = ""
+					MorphErrorList_LOD0()			
+					if morphError != 1 then 
+					(
+						if $wheel_LODS0 != undefined and $wheel_LODS0_morph != undefined and $wheel_LODS0_morph2 != undefined do
+						(
+							applyWheelMorph $wheel_LODS0 $wheel_LODS0_morph $wheel_LODS0_morph2
+						)
+						if $blurLip_LODS0 != undefined and $blurLip_LODS0_morph != undefined and $blurRim_LODS0 != undefined and $blurRim_LODS0_morph != undefined do
+						(
+							applyBlurMorph $blurLip_LODS0 $blurLip_LODS0_morph
+							applyBlurMorph $blurRim_LODS0 $blurRim_LODS0_morph
+						)
+						deselect $*
+					)
+					else
+					(
+						getMessageBox errorString
+					)
+				)
+			if chkLowerLod.checked == true do
+				(
+					lod_errorString = ""
+					MorphErrorList_LLDR()
+					if lodmorphError != 1 then
+					(
+						if $wheel_LOD1 != undefined and $wheel_LOD1_morph != undefined and $wheel_LOD1_morph2 != undefined do
+						(
+							applyWheelMorph $wheel_LOD1 $wheel_LOD1_morph $wheel_LOD1_morph2
+						)
+						if $blurLip_LOD1 != undefined and $blurLip_LOD1_morph != undefined and $blurRim_LOD1 != undefined and $blurRim_LOD1_morph != undefined do
+						(
+							applyBlurMorph $blurLip_LOD1 $blurLip_LOD1_morph
+							applyBlurMorph $blurRim_LOD1 $blurRim_LOD1_morph
+						)
+						deselect $*
+					)
+					else
+					(
+						getMessageBox lod_errorString
+					)
+				)
+		)
+		
+	)
+	on chkLod changed state do
+	(
+		if state == true then
+		(
+			chkLod.caption = "LODS0 : Included"
+		)
+		else
+		(
+			chkLod.caption = "LODS0 : Excluded"
+		)
+	)
+	on chkLowerLod changed state do
+	(
+		if state == true then
+		(
+			chkLowerLod.caption = "LOD 1-5 : Included"
+		)
+		else
+		(
+			chkLowerLod.caption = "LOD 1-5 : Excluded"
+		)
+	)
+	on btnReset pressed do
+	(
+		undo on
+			(	
+					deleteFiles $wheel_LODS0_morph
+					deleteFiles $wheel_LODS0_morph2
+					deleteFiles $wheel_LOD1_morph
+					deleteFiles $wheel_LOD1_morph2
+					deleteFiles $blurLip_LODS0_morph
+					deleteFiles $blurRim_LODS0_morph
+					deleteFiles $blurRim_LOD1_morph
+					deleteFiles $blurLip_LOD1_morph
+					
+					select geometry
+					ResetXForm selection
+					ConvertTo selection Editable_Poly
+				
+					if $wheel_LODS0 != undefined then
+					(
+						ResetWheels edtRimSize.value $wheel_LODS0
+					)				
+					if $blurLip_LODS0 != undefined and $blurRim_LODS0 != undefined then
+					(
+						blurScale $blurLip_LODS0 $blurRim_LODS0
+						ResetWheels edtRimSize.value $blurLip_LODS0
+						blurDetach $blurLip_LODS0 "blurRim_LODS0"
+					)
+					--LOD1
+					if $wheel_LOD1 != undefined and $wheel_LOD2 != undefined and $wheel_LOD3 != undefined do
+					(
+						applyVertexColor()
+						attachLLDR()
+						ResetWheels edtRimSize.value $wheel_LOD1
+						detachLLDRBasedVertexColor()
+						
+					)
+					
+					if $blurLip_LOD1 != undefined and $blurLip_LOD2 != undefined and $blurLip_LOD3 != undefined and $blurLip_LOD4 != undefined and $blurLip_LOD5 != undefined then
+					(
+						if $blurLip_LOD1 != undefined and $blurLip_LOD2 != undefined and $blurLip_LOD3 != undefined and $blurLip_LOD4 != undefined and $blurLip_LOD5 != undefined then
+						(
+						
+							applyBlurVertexColor $blurLip_LOD1 b_ColorData[1]
+							applyBlurVertexColor $blurLip_LOD2 b_ColorData[2]
+							applyBlurVertexColor $blurLip_LOD3 b_ColorData[3]
+							applyBlurVertexColor $blurLip_LOD4 b_ColorData[4]
+							applyBlurVertexColor $blurLip_LOD5 b_ColorData[5]
+							
+							applyBlurVertexColor $blurRim_LOD1 b_ColorData[1]
+							applyBlurVertexColor $blurRim_LOD2 b_ColorData[2]
+							applyBlurVertexColor $blurRim_LOD3 b_ColorData[3]
+							applyBlurVertexColor $blurRim_LOD4 b_ColorData[4]
+							applyBlurVertexColor $blurRim_LOD5 b_ColorData[5]
+							
+							attachBlurLLDR $blurLip_LOD1 $blurLip_LOD2
+							attachBlurLLDR $blurLip_LOD1 $blurLip_LOD3
+							attachBlurLLDR $blurLip_LOD1 $blurLip_LOD4
+							attachBlurLLDR $blurLip_LOD1 $blurLip_LOD5
+							
+							attachBlurLLDR $blurRim_LOD1 $blurRim_LOD2
+							attachBlurLLDR $blurRim_LOD1 $blurRim_LOD3
+							attachBlurLLDR $blurRim_LOD1 $blurRim_LOD4
+							attachBlurLLDR $blurRim_LOD1 $blurRim_LOD5
+							
+														
+							blurScale $blurLip_LOD1 $blurRim_LOD1
+							ResetWheels edtRimSize.value $blurLip_LOD1							
+							blurDetach $blurLip_LOD1 "blurRim_LOD1"
+							detachLipLLDRBasedVertexColor()
+							detachRimLLDRBasedVertexColor()
+							
+						)
+					)
+					
+			)
+			
+			select geometry
+			ResetXForm selection
+			ConvertTo selection Editable_Poly
+			for i in geometry where classOf i == Editable_Poly or classOf i == Editable_Mesh do
+			(
+				select i
+				subOjectLevel = 1
+				PolyOp.setVertSelection i #all
+				i.setVertexColor (color 0 0 0) #VertexColor
+				i.showVertexColors = off
+			)
+	)
+	on btnDelMorph pressed do
+	(
+		undo on
+		(
+			deleteFiles $wheel_LODS0_morph
+			deleteFiles $wheel_LODS0_morph2
+			deleteFiles $wheel_LOD1_morph
+			deleteFiles $wheel_LOD1_morph2
+			deleteFiles $blurLip_LODS0_morph
+			deleteFiles $blurRim_LODS0_morph
+			deleteFiles $blurRim_LOD1_morph
+			deleteFiles $blurLip_LOD1_morph
+			for i in objects do
+			(
+				select i
+				ResetXForm i
+				ConvertTo i Editable_Poly				
+			)
+		)
+	)
+	on btnBlurMap pressed do
+	(
+		setSelection()
+		if selection.count > 0 then
+		(
+			ApplyMod 1
+			ApplyMod 2
+			ApplyMod 3
+			ApplyMod 4
+		)
+		else
+		(
+			MessageBox "BlurLip and BlurRim not found"
+		)
+	)
+	on btn_setBlurID pressed do
+	(
+		for i in $blurLip* do
+		(
+			polyop.setFaceMatID i #all 14			
+		)
+		deselect $*
+		for i in $blurRim* do
+		(
+			polyop.setFaceMatID i #all 13			
+		)
+		deselect $*
+	)
+)
+--Adding Rollout to RolloutFloater
+fzWTool = newrolloutfloater "ForzaWheelTool v2" 180 700
+addrollout ForzaDTool fzWTool
+addrollout ForzaPlacement fzWTool
+addrollout EditFiles fzWTool
+addrollout WheelTool fzWTool
+)
